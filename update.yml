@@ -9,11 +9,20 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
-  contents: write        # ← явно разрешаем запись в репозиторий
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
 
     steps:
       - name: Скачать репозиторий
@@ -34,20 +43,17 @@ jobs:
 
       - name: Проверить результат
         run: |
-          echo "=== Размер index.html ==="
-          wc -c index.html
-          echo "=== Первые 3 строки ==="
-          head -3 index.html
+          echo "Размер файла: $(wc -c < index.html) байт"
+          head -5 index.html
 
-      - name: Отправить изменения
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          if git diff --staged --quiet; then
-            echo "Изменений нет"
-          else
-            git commit -m "Обновление: $(date '+%d.%m.%Y %H:%M')"
-            git push
-            echo "✅ Сайт обновлён"
-          fi
+      - name: Настроить GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Загрузить файлы
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Опубликовать на GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
