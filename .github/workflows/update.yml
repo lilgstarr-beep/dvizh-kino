@@ -1,0 +1,59 @@
+name: Обновить сайт
+
+on:
+  schedule:
+    - cron: '0 5,17 * * *'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Скачать репозиторий
+        uses: actions/checkout@v4
+
+      - name: Установить Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Установить зависимости
+        run: pip install requests
+
+      - name: Собрать сайт
+        run: python build.py
+        env:
+          VK_TOKEN: ${{ secrets.VK_TOKEN }}
+
+      - name: Проверить результат
+        run: |
+          echo "Размер файла: $(wc -c < index.html) байт"
+          head -5 index.html
+
+      - name: Настроить GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Загрузить файлы
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Опубликовать на GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
