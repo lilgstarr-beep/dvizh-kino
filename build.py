@@ -1,6 +1,6 @@
 """
 ДВИЖ КИНО — автосборка сайта
-Исправлена высота карточек в сетке на мобильных устройствах.
+Исправлена ширина карточек на мобильных: 200px (помещается 2 шт).
 """
 import os, re, requests
 from datetime import datetime
@@ -215,7 +215,7 @@ footer{border-top:1px solid var(--bd);padding:24px 40px;display:flex;align-items
 .fupd{font-size:11px;color:var(--muted)}
 @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:640px){
-  :root{--cw:260px;--ch:147px;--gap:10px}
+  :root{--cw:200px;--ch:113px;--gap:10px}
   nav{padding:0 18px;height:54px}.nav-links{display:none}
   .hero{height:70vw;min-height:300px}.hero-body{padding:0 18px 40px}
   .hero-title{font-size:22px}.hero-btns{flex-direction:column;gap:8px}
@@ -223,7 +223,7 @@ footer{border-top:1px solid var(--bd);padding:24px 40px;display:flex;align-items
   .sh,.ch,.sep,.grid{padding-left:16px;padding-right:16px}
   .grid{grid-template-columns:1fr;gap:16px}
   .grid .card{width:100%}
-  /* Исправление высоты карточек в сетке — сохраняем пропорции 16:9 */
+  /* Исправление высоты карточек в сетке на мобильных (соотношение 16:9) */
   .grid .card .ct{height:auto;aspect-ratio:16/9}
   .mb{padding:0;align-items:flex-end}.md{border-radius:12px 12px 0 0;max-height:92vh;overflow-y:auto}
   .mby{flex-direction:column}.mvk{align-self:stretch;justify-content:center}
