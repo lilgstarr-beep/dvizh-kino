@@ -1,6 +1,6 @@
 """
 ДВИЖ КИНО — автосборка сайта
-Добавлено: логотип, раздел "Рекомендуем", раздел "А вы знали?" (отдельная рубрика)
+Исправлена высота карточек в сетке на мобильных устройствах.
 """
 import os, re, requests
 from datetime import datetime
@@ -11,12 +11,7 @@ VK_VER     = "5.131"
 OUT        = "index.html"
 CITIES     = ["Тула", "Коломна", "Ступино", "Калуга"]
 
-# ===== НАСТРОЙКИ =====
-# Укажите путь к файлу логотипа (например, "logo.png" или "assets/logo.svg").
-# Оставьте пустой строкой, чтобы использовался текст.
-LOGO_URL = ""   # <-- сюда впишите свой путь, например "logo.png"
-
-# Фраза для распознавания рубрики "А вы знали?" (можно менять)
+LOGO_URL = ""   # Укажите путь к логотипу (например "logo.png")
 RUBRIC_PHRASE = "А вы знали?"
 
 def fetch_videos():
@@ -62,11 +57,8 @@ def process(raw):
     out = []
     for v in raw:
         raw_title = v.get("title", "")
-        # Определяем рубрику "А вы знали?" (по фразе в любом регистре)
         rubric = "aznali" if RUBRIC_PHRASE.lower() in raw_title.lower() else ""
-        # Для рубрики город не нужен
         city = extract_city(raw_title) if not rubric else ""
-
         title = clean_title(raw_title)
         dur   = v.get("duration", 0)
         year  = datetime.fromtimestamp(v.get("date", 0)).year
@@ -112,7 +104,7 @@ def to_js(films):
     rows.append("];")
     return "\n".join(rows)
 
-# ── HTML TEMPLATE (CSS + JS с логотипом, "Рекомендуем" и "А вы знали?") ─────────
+# ── HTML TEMPLATE (CSS + JS) ─────────────────────────────────────────────────
 CSS = """
 :root{--bg:#0c0c10;--sf:#14141a;--sf2:#1e1e26;--bd:rgba(255,255,255,.07);
   --red:#e84545;--text:#f2f0ed;--dim:#8e8c88;--muted:#3e3c3a;
@@ -223,12 +215,16 @@ footer{border-top:1px solid var(--bd);padding:24px 40px;display:flex;align-items
 .fupd{font-size:11px;color:var(--muted)}
 @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:640px){
-  :root{--cw:200px;--ch:113px;--gap:10px}
+  :root{--cw:260px;--ch:147px;--gap:10px}
   nav{padding:0 18px;height:54px}.nav-links{display:none}
   .hero{height:70vw;min-height:300px}.hero-body{padding:0 18px 40px}
   .hero-title{font-size:22px}.hero-btns{flex-direction:column;gap:8px}
   .controls{padding:16px 16px 0;gap:8px}.row{padding:4px 16px 10px}
   .sh,.ch,.sep,.grid{padding-left:16px;padding-right:16px}
+  .grid{grid-template-columns:1fr;gap:16px}
+  .grid .card{width:100%}
+  /* Исправление высоты карточек в сетке — сохраняем пропорции 16:9 */
+  .grid .card .ct{height:auto;aspect-ratio:16/9}
   .mb{padding:0;align-items:flex-end}.md{border-radius:12px 12px 0 0;max-height:92vh;overflow-y:auto}
   .mby{flex-direction:column}.mvk{align-self:stretch;justify-content:center}
   footer{flex-direction:column;padding:20px 16px;gap:8px}.si{width:160px}
@@ -251,7 +247,6 @@ const cc=c=>CC[c]||"x";
 const fmt=n=>n>=1000?(n/1000).toFixed(1)+"K":String(n);
 const vkLink=id=>"https://vk.com/video-24961777_"+id;
 
-// Lazy image loader
 const obs=new IntersectionObserver(es=>{es.forEach(e=>{
   if(e.isIntersecting){
     const i=e.target;
@@ -400,7 +395,7 @@ function buildSections(){
     sh.innerHTML="<div class='st'>Рекомендуем</div><span class='sc'>выбор редакции</span>";
     s.appendChild(sh);s.appendChild(makeRow(recCandidates));c.appendChild(s);c.appendChild(sep());
   }
-  // === НОВЫЙ РАЗДЕЛ: А вы знали? ===
+  // А вы знали?
   const aznaliFilms = FILMS.filter(f => f.rubric === "aznali");
   if(aznaliFilms.length){
     const s=document.createElement("section");s.className="sec";
@@ -431,7 +426,6 @@ function buildSections(){
   c.appendChild(cw);
 }
 
-// Controls
 document.querySelector(".controls").addEventListener("click",e=>{
   const btn=e.target.closest("[data-city]");if(!btn)return;
   activeCity=btn.dataset.city;
