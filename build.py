@@ -1,318 +1,500 @@
 """
 ДВИЖ КИНО — автосборка сайта
-Тянет видео из ВК группы и генерирует index.html
 """
-
 import os, re, requests
 from datetime import datetime
 
-# ── НАСТРОЙКИ ──────────────────────────────────────────────
-VK_TOKEN    = os.environ.get("VK_TOKEN", "")
-GROUP_ID    = 24961777
-VK_API_VER  = "5.131"
-OUTPUT_FILE = "index.html"
-# ───────────────────────────────────────────────────────────
-
-CITIES = ["Тула", "Коломна", "Ступино", "Калуга"]
+VK_TOKEN   = os.environ.get("VK_TOKEN", "")
+GROUP_ID   = 24961777
+VK_VER     = "5.131"
+OUT        = "index.html"
+CITIES     = ["Тула", "Коломна", "Ступино", "Калуга"]
 
 def fetch_videos():
-    all_videos = []
-    offset = 0
+    videos, offset = [], 0
     while True:
-        resp = requests.get("https://api.vk.com/method/video.get", params={
-            "owner_id":     f"-{GROUP_ID}",
-            "count":        100,
-            "offset":       offset,
-            "access_token": VK_TOKEN,
-            "v":            VK_API_VER,
+        r = requests.get("https://api.vk.com/method/video.get", params={
+            "owner_id": f"-{GROUP_ID}", "count": 100, "offset": offset,
+            "access_token": VK_TOKEN, "v": VK_VER,
         }, timeout=30)
-        data = resp.json()
-        if "error" in data:
-            raise RuntimeError("VK API error: " + str(data["error"]))
-        items = data["response"]["items"]
-        all_videos.extend(items)
-        print(f"  Загружено: {len(all_videos)} видео...")
+        d = r.json()
+        if "error" in d:
+            raise RuntimeError("VK API: " + str(d["error"].get("error_msg", d["error"])))
+        items = d["response"]["items"]
+        videos.extend(items)
+        print(f"  Загружено: {len(videos)}")
         if len(items) < 100:
             break
         offset += 100
-    return all_videos
+    return videos
 
-def extract_city(title):
-    m = re.search(r"\((Тула|Коломна|Ступино|Калуга)\)", title)
+def extract_city(t):
+    m = re.search(r"\((Тула|Коломна|Ступино|Калуга)\)", t)
     return m.group(1) if m else ""
 
 def clean_title(t):
-    # Убираем префикс "Киножурнал ... Движ/ДВИЖ ... - "
     t = re.sub(r"^Киножурнал\b.{0,15}?(ДВИЖ|Движ).{0,4}?\s*[-\u2014]\s*", "", t, flags=re.I)
     t = re.sub(r"^Движ\s*[-\u2014]\s*", "", t, flags=re.I)
-    # Убираем суффикс с городом
     for c in CITIES:
         t = re.sub(r"\s*\(" + c + r"\)\s*$", "", t)
-    # Частные случаи
     if "Новости Коломны от 28 мая" in t:
-        t = "Новости: съёмки нового сезона в Коломне"
+        t = "Новости: съёмки нового сезона"
     return t.strip()
 
 def best_thumb(imgs):
-    vk = [i for i in imgs if "userapi.com" in i.get("url", "")]
+    vk = [i for i in imgs if "userapi.com" in i.get("url","")]
     pool = sorted(vk or imgs, key=lambda x: x.get("width", 0))
-    for img in pool:
-        if img.get("width", 0) >= 800:
-            return img["url"]
+    for i in pool:
+        if i.get("width", 0) >= 800:
+            return i["url"]
     return pool[-1]["url"] if pool else ""
 
-def process_videos(raw):
-    result = []
+def process(raw):
+    out = []
     for v in raw:
-        title  = clean_title(v.get("title", ""))
-        city   = extract_city(v.get("title", ""))
-        thumb  = best_thumb(v.get("image", []))
-        year   = datetime.fromtimestamp(v.get("date", 0)).year
-        views  = v.get("views", v.get("local_views", 0))
-        player = v.get("player", "").replace("&amp;", "&")
-        dur    = v.get("duration", 0)
-        result.append({
-            "id":         v["id"],
-            "title":      title,
-            "city":       city,
-            "year":       year,
-            "views":      views,
-            "dur":        f"{dur // 60}:{dur % 60:02d}",
-            "player":     player,
-            "thumb":      thumb,
-            "isNew":      year >= 2026,
-            "isFeatured": views >= 800,
+        title = clean_title(v.get("title",""))
+        city  = extract_city(v.get("title",""))
+        dur   = v.get("duration", 0)
+        year  = datetime.fromtimestamp(v.get("date", 0)).year
+        views = v.get("views", v.get("local_views", 0))
+        out.append({
+            "id":    v["id"],
+            "title": title,
+            "city":  city,
+            "year":  year,
+            "views": views,
+            "dur":   f"{dur//60}:{dur%60:02d}",
+            "player": v.get("player","").replace("&amp;","&"),
+            "thumb": best_thumb(v.get("image",[])),
+            "isNew": year >= 2026,
+            "isFeat": views >= 800,
         })
-    return result
+    return out
+
+def esc_js(s):
+    # Escape for use inside JS double-quoted strings
+    return (s.replace("\\","\\\\")
+             .replace('"', '\\"')
+             .replace("\r","")
+             .replace("\n","\\n")
+             .replace("\t"," "))
 
 def to_js(films):
-    def esc(s):
-        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-    lines = ["const FILMS=["]
+    rows = ["const FILMS=["]
     for f in films:
-        lines.append(
-            '  {id:' + str(f["id"]) +
-            ',title:"' + esc(f["title"]) + '"' +
-            ',city:"'  + f["city"]        + '"' +
-            ',year:'   + str(f["year"])   +
-            ',views:'  + str(f["views"])  +
-            ',dur:"'   + f["dur"]         + '"' +
-            ',player:"'+ esc(f["player"]) + '"' +
-            ',thumb:"' + esc(f["thumb"])  + '"' +
-            ',isNew:'  + ("true" if f["isNew"]      else "false") +
-            ',isFeatured:' + ("true" if f["isFeatured"] else "false") + '},'
+        rows.append(
+            "{id:" + str(f["id"]) +
+            ',title:"' + esc_js(f["title"]) + '"' +
+            ',city:"'  + f["city"] + '"' +
+            ',year:'   + str(f["year"]) +
+            ',views:'  + str(f["views"]) +
+            ',dur:"'   + f["dur"] + '"' +
+            ',player:"'+ esc_js(f["player"]) + '"' +
+            ',thumb:"' + esc_js(f["thumb"]) + '"' +
+            ',isNew:'  + ("true" if f["isNew"] else "false") +
+            ',isFeat:' + ("true" if f["isFeat"] else "false") + "},"
         )
-    lines.append("];")
-    return "\n".join(lines)
+    rows.append("];")
+    return "\n".join(rows)
 
-def build_html(films_js, total, updated_at):
-    return """<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ДВИЖ КИНО</title>
-<meta name="description" content="Короткометражное кино из Тулы, Коломны, Ступино и Калуги">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
-<style>
-:root{--bg:#0c0c10;--surface:#14141a;--surface2:#1e1e26;--border:rgba(255,255,255,.07);--gold:#e8bc6a;--red:#e84545;--text:#f2f0ed;--text-dim:#8e8c88;--text-muted:#3e3c3a;--tula:#f0873c;--kolomna:#3da8e0;--stupino:#44c97a;--kaluga:#a67ee8;--cw:280px;--ch:158px;--gap:12px;--r:8px}
+# ── HTML TEMPLATE ─────────────────────────────────────────────────────────────
+CSS = """
+:root{--bg:#0c0c10;--sf:#14141a;--sf2:#1e1e26;--bd:rgba(255,255,255,.07);
+  --red:#e84545;--text:#f2f0ed;--dim:#8e8c88;--muted:#3e3c3a;
+  --tula:#f0873c;--kolomna:#3da8e0;--stupino:#44c97a;--kaluga:#a67ee8;
+  --cw:280px;--ch:158px;--gap:12px;--r:8px}
 *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overflow-x:hidden;min-height:100vh;-webkit-font-smoothing:antialiased}
-body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.025'/%3E%3C/svg%3E");pointer-events:none;z-index:1000;mix-blend-mode:overlay}
+body{background:var(--bg);color:var(--text);font-family:Inter,sans-serif;overflow-x:hidden;min-height:100vh;-webkit-font-smoothing:antialiased}
 nav{position:fixed;top:0;left:0;right:0;z-index:200;height:60px;padding:0 40px;display:flex;align-items:center;justify-content:space-between;transition:background .3s}
-nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
-.logo{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:6px}
-.logo-dot{width:8px;height:8px;background:var(--red);border-radius:50%}
+nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom:1px solid var(--bd)}
+.logo{font-family:Playfair Display,serif;font-size:20px;font-weight:700;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;background:var(--red);border-radius:50%}
 .nav-links{display:flex;gap:28px;list-style:none}
-.nav-links a{color:var(--text-dim);text-decoration:none;font-size:13px;font-weight:500;transition:color .2s}
+.nav-links a{color:var(--dim);text-decoration:none;font-size:13px;font-weight:500;transition:color .2s}
 .nav-links a:hover{color:var(--text)}
-.nav-count{font-size:12px;color:var(--text-muted)}
+.nav-count{font-size:12px;color:var(--muted)}
 .hero{position:relative;height:88vh;min-height:520px;display:flex;align-items:flex-end;overflow:hidden}
 .hero-img{position:absolute;inset:0;background-size:cover;background-position:center;transition:transform 10s ease}
-.hero-img.loaded{transform:scale(1.04)}
-.hero-grad{position:absolute;inset:0;background:linear-gradient(to right,rgba(12,12,16,.98) 0%,rgba(12,12,16,.7) 40%,rgba(12,12,16,.15) 75%,rgba(12,12,16,.4) 100%),linear-gradient(to top,rgba(12,12,16,1) 0%,rgba(12,12,16,.6) 25%,transparent 60%)}
+.hero-img.on{transform:scale(1.04)}
+.hero-grad{position:absolute;inset:0;background:linear-gradient(to right,rgba(12,12,16,.98) 0%,rgba(12,12,16,.6) 45%,rgba(12,12,16,.1) 80%),linear-gradient(to top,rgba(12,12,16,1) 0%,rgba(12,12,16,.5) 30%,transparent 65%)}
 .hero-body{position:relative;z-index:2;padding:0 40px 64px;max-width:560px;animation:fadeUp .8s ease both}
 .hero-tags{display:flex;align-items:center;gap:8px;margin-bottom:16px}
-.hero-tag{display:flex;align-items:center;gap:6px;background:rgba(232,69,69,.15);border:1px solid rgba(232,69,69,.3);color:var(--red);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:4px 10px;border-radius:20px}
-.hero-tag::before{content:'';width:6px;height:6px;background:var(--red);border-radius:50%;animation:pulse 2s ease infinite}
+.live{display:flex;align-items:center;gap:6px;background:rgba(232,69,69,.15);border:1px solid rgba(232,69,69,.3);color:var(--red);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:4px 10px;border-radius:20px}
+.live::before{content:'';width:6px;height:6px;background:var(--red);border-radius:50%;animation:pulse 2s ease infinite}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
-.city-pill{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:20px}
-.city-pill.tula{background:rgba(240,135,60,.12);color:var(--tula)}.city-pill.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.city-pill.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.city-pill.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}
-.hero-title{font-family:'Playfair Display',serif;font-size:clamp(30px,5vw,56px);font-weight:700;line-height:1.08;margin-bottom:14px}
-.hero-meta{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-dim);margin-bottom:28px}
-.hero-sep{width:3px;height:3px;background:var(--text-muted);border-radius:50%}
+.cpill{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:20px}
+.cpill.tula{background:rgba(240,135,60,.12);color:var(--tula)}.cpill.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.cpill.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.cpill.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}
+.hero-title{font-family:Playfair Display,serif;font-size:clamp(30px,5vw,56px);font-weight:700;line-height:1.08;margin-bottom:14px}
+.hero-meta{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-bottom:28px}
+.hero-sep{width:3px;height:3px;background:var(--muted);border-radius:50%}
 .hero-btns{display:flex;gap:10px}
-.btn-watch{display:inline-flex;align-items:center;gap:8px;background:var(--text);color:#0c0c10;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:700;border:none;cursor:pointer;transition:all .18s}
-.btn-watch:hover{background:#e0ddd8;transform:translateY(-1px)}
-.btn-more{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);color:var(--text);padding:12px 20px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;transition:all .18s}
-.btn-more:hover{background:rgba(255,255,255,.16);transform:translateY(-1px)}
+.btn-w{display:inline-flex;align-items:center;gap:8px;background:var(--text);color:#0c0c10;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:700;border:none;cursor:pointer;transition:all .18s}
+.btn-w:hover{background:#e0ddd8;transform:translateY(-1px)}
+.btn-a{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);color:var(--text);padding:12px 20px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;transition:all .18s}
+.btn-a:hover{background:rgba(255,255,255,.16);transform:translateY(-1px)}
 .controls{padding:28px 40px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.search-wrap{position:relative}
-.search-wrap svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-muted)}
-.search-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Inter',sans-serif;font-size:13px;padding:9px 14px 9px 36px;width:230px;border-radius:6px;outline:none;transition:border-color .2s}
-.search-input::placeholder{color:var(--text-muted)}.search-input:focus{border-color:rgba(255,255,255,.2)}
-.divider{width:1px;height:22px;background:var(--border);margin:0 2px}
-.flabel{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted)}
-.fbtn{padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--text-dim);font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;border-radius:20px;transition:all .18s}
-.fbtn:hover{border-color:rgba(255,255,255,.2);color:var(--text)}
-.fbtn.active{background:var(--text);color:#0c0c10;border-color:var(--text)}
-.fbtn.tula.active{background:var(--tula);color:#0c0c10;border-color:var(--tula)}.fbtn.kolomna.active{background:var(--kolomna);color:#0c0c10;border-color:var(--kolomna)}.fbtn.stupino.active{background:var(--stupino);color:#0c0c10;border-color:var(--stupino)}.fbtn.kaluga.active{background:var(--kaluga);color:#0c0c10;border-color:var(--kaluga)}
+.sw{position:relative}
+.sw svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.si{background:var(--sf2);border:1px solid var(--bd);color:var(--text);font-family:Inter,sans-serif;font-size:13px;padding:9px 14px 9px 36px;width:230px;border-radius:6px;outline:none;transition:border-color .2s}
+.si::placeholder{color:var(--muted)}.si:focus{border-color:rgba(255,255,255,.2)}
+.dv{width:1px;height:22px;background:var(--bd);margin:0 2px}
+.fl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.fb{padding:7px 14px;background:transparent;border:1px solid var(--bd);color:var(--dim);font-family:Inter,sans-serif;font-size:12px;font-weight:600;cursor:pointer;border-radius:20px;transition:all .18s}
+.fb:hover{border-color:rgba(255,255,255,.2);color:var(--text)}
+.fb.active{background:var(--text);color:#0c0c10;border-color:var(--text)}
+.fb.tula.active{background:var(--tula);color:#0c0c10;border-color:var(--tula)}
+.fb.kolomna.active{background:var(--kolomna);color:#0c0c10;border-color:var(--kolomna)}
+.fb.stupino.active{background:var(--stupino);color:#0c0c10;border-color:var(--stupino)}
+.fb.kaluga.active{background:var(--kaluga);color:#0c0c10;border-color:var(--kaluga)}
 .sections{padding:28px 0 80px}
-.sec{margin-bottom:36px}.sec-hdr{padding:0 40px;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.sec-title{font-size:17px;font-weight:700;letter-spacing:-.01em}.sec-count{font-size:12px;color:var(--text-muted)}
-.sep{height:1px;margin:0 40px 28px;background:var(--border)}
-.city-sec{margin-bottom:36px}.city-hdr{padding:0 40px;display:flex;align-items:center;gap:12px;margin-bottom:14px}
-.city-name{font-size:17px;font-weight:700;letter-spacing:-.01em}
-.city-name.tula{color:var(--tula)}.city-name.kolomna{color:var(--kolomna)}.city-name.stupino{color:var(--stupino)}.city-name.kaluga{color:var(--kaluga)}
-.city-rule{flex:1;height:1px;background:var(--border)}.city-badge{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);background:var(--surface2);padding:3px 8px;border-radius:10px}
+.sec{margin-bottom:36px}
+.sh{padding:0 40px;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.st{font-size:17px;font-weight:700;letter-spacing:-.01em}.sc{font-size:12px;color:var(--muted)}
+.sep{height:1px;margin:0 40px 28px;background:var(--bd)}
+.cs{margin-bottom:36px}
+.ch{padding:0 40px;display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.cn{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.cn.tula{color:var(--tula)}.cn.kolomna{color:var(--kolomna)}.cn.stupino{color:var(--stupino)}.cn.kaluga{color:var(--kaluga)}
+.cr{flex:1;height:1px;background:var(--bd)}
+.cb{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--sf2);padding:3px 8px;border-radius:10px}
 .row{display:flex;gap:var(--gap);overflow-x:auto;padding:4px 40px 12px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .row::-webkit-scrollbar{display:none}
-.card{flex:0 0 var(--cw);width:var(--cw);cursor:pointer;scroll-snap-align:start;transition:transform .22s ease}
+.card{flex:0 0 var(--cw);width:var(--cw);cursor:pointer;scroll-snap-align:start;transition:transform .22s}
 .card:hover{transform:scale(1.03)}
-.card-thumb{width:100%;height:var(--ch);border-radius:var(--r);overflow:hidden;position:relative;background:var(--surface2);margin-bottom:10px}
-.card-img{width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .4s;display:block}
-.card-img.on{opacity:1}
-.card-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s;z-index:2}
-.card:hover .card-play{opacity:1}
-.card-play-btn{width:44px;height:44px;background:rgba(255,255,255,.92);border-radius:50%;display:flex;align-items:center;justify-content:center}
-.card-play-btn svg{fill:#0c0c10;width:18px;height:18px;margin-left:2px}
-.card-dur{position:absolute;bottom:8px;right:8px;font-size:10px;font-weight:600;color:#fff;background:rgba(0,0,0,.72);padding:2px 6px;border-radius:4px;z-index:2}
-.card-new{position:absolute;top:8px;left:8px;background:var(--red);color:#fff;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:4px;z-index:2}
-.card-hot{position:absolute;top:8px;left:8px;background:rgba(232,188,106,.88);color:#0c0c10;font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;z-index:2}
-.card-info{padding:0 2px}
-.card-title{font-size:13px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:5px;letter-spacing:-.01em}
-.card-foot{display:flex;align-items:center;gap:6px}
-.card-city{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px}
-.card-city.tula{background:rgba(240,135,60,.12);color:var(--tula)}.card-city.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.card-city.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.card-city.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}.card-city.x{background:rgba(255,255,255,.05);color:var(--text-muted)}
-.card-views{font-size:11px;color:var(--text-muted)}
+.ct{width:100%;height:var(--ch);border-radius:var(--r);overflow:hidden;position:relative;background:var(--sf2);margin-bottom:10px}
+.ci{width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .4s;display:block}
+.ci.on{opacity:1}
+.cp{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s;z-index:2}
+.card:hover .cp{opacity:1}
+.cpb{width:44px;height:44px;background:rgba(255,255,255,.92);border-radius:50%;display:flex;align-items:center;justify-content:center}
+.cpb svg{fill:#0c0c10;width:18px;height:18px;margin-left:2px}
+.cd{position:absolute;bottom:8px;right:8px;font-size:10px;font-weight:600;color:#fff;background:rgba(0,0,0,.72);padding:2px 6px;border-radius:4px;z-index:2}
+.cn2{position:absolute;top:8px;left:8px;background:var(--red);color:#fff;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:4px;z-index:2}
+.ch2{position:absolute;top:8px;left:8px;background:rgba(232,188,106,.88);color:#0c0c10;font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;z-index:2}
+.ci2{padding:0 2px}
+.tl{font-size:13px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:5px;letter-spacing:-.01em}
+.cf{display:flex;align-items:center;gap:6px}
+.cc{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px}
+.cc.tula{background:rgba(240,135,60,.12);color:var(--tula)}.cc.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.cc.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.cc.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}.cc.x{background:rgba(255,255,255,.05);color:var(--muted)}
+.cv{font-size:11px;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cw),1fr));gap:18px var(--gap);padding:0 40px}
 .grid .card{flex:none;width:100%}
-.modal-bg{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.88);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s;padding:16px}
-.modal-bg.open{opacity:1;pointer-events:all}
-.modal{width:100%;max-width:900px;background:var(--surface);border-radius:12px;overflow:hidden;position:relative;transform:scale(.95) translateY(14px);transition:transform .25s;box-shadow:0 32px 80px rgba(0,0,0,.8)}
-.modal-bg.open .modal{transform:scale(1) translateY(0)}
-.modal-video{width:100%;aspect-ratio:16/9;background:#000}
-.modal-video iframe{width:100%;height:100%;border:none;display:block}
-.modal-close{position:absolute;top:12px;right:12px;z-index:10;width:32px;height:32px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.12);border-radius:50%;color:var(--text-dim);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .18s}
-.modal-close:hover{background:rgba(255,255,255,.12);color:var(--text)}
-.modal-body{padding:18px 22px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
-.modal-info{flex:1;min-width:0}
-.modal-title{font-size:18px;font-weight:700;margin-bottom:8px;letter-spacing:-.01em}
-.modal-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.m-pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px}
-.m-pill.tula{background:rgba(240,135,60,.12);color:var(--tula)}.m-pill.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.m-pill.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.m-pill.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}
-.m-info{font-size:12px;color:var(--text-muted)}
-.modal-vk{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text-dim);text-decoration:none;font-size:12px;font-weight:600;padding:9px 16px;border-radius:6px;white-space:nowrap;flex-shrink:0;transition:all .18s}
-.modal-vk:hover{background:rgba(255,255,255,.12);color:var(--text)}
-.empty{padding:60px 40px;text-align:center;font-size:18px;color:var(--text-muted)}
-footer{border-top:1px solid var(--border);padding:24px 40px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.footer-logo{font-family:'Playfair Display',serif;font-size:16px;font-weight:700;color:var(--text-dim)}
-.footer-links{display:flex;gap:16px}
-.footer-links a{color:var(--text-muted);text-decoration:none;font-size:12px;font-weight:500;transition:color .2s}
-.footer-links a:hover{color:var(--text)}
-.footer-upd{font-size:11px;color:var(--text-muted)}
+.mb{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.88);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s;padding:16px}
+.mb.open{opacity:1;pointer-events:all}
+.md{width:100%;max-width:900px;background:var(--sf);border-radius:12px;overflow:hidden;position:relative;transform:scale(.95) translateY(14px);transition:transform .25s;box-shadow:0 32px 80px rgba(0,0,0,.8)}
+.mb.open .md{transform:scale(1) translateY(0)}
+.mv{width:100%;aspect-ratio:16/9;background:#000}
+.mv iframe{width:100%;height:100%;border:none;display:block}
+.mc{position:absolute;top:12px;right:12px;z-index:10;width:32px;height:32px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.12);border-radius:50%;color:var(--dim);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .18s}
+.mc:hover{background:rgba(255,255,255,.12);color:var(--text)}
+.mby{padding:18px 22px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.mi{flex:1;min-width:0}
+.mt{font-size:18px;font-weight:700;margin-bottom:8px;letter-spacing:-.01em}
+.mm{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mp{font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px}
+.mp.tula{background:rgba(240,135,60,.12);color:var(--tula)}.mp.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.mp.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.mp.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}
+.minfo{font-size:12px;color:var(--muted)}
+.mvk{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.07);border:1px solid var(--bd);color:var(--dim);text-decoration:none;font-size:12px;font-weight:600;padding:9px 16px;border-radius:6px;white-space:nowrap;flex-shrink:0;transition:all .18s}
+.mvk:hover{background:rgba(255,255,255,.12);color:var(--text)}
+.empty{padding:60px 40px;text-align:center;font-size:18px;color:var(--muted)}
+footer{border-top:1px solid var(--bd);padding:24px 40px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.fl2{font-family:Playfair Display,serif;font-size:16px;font-weight:700;color:var(--dim)}
+.flinks{display:flex;gap:16px}
+.flinks a{color:var(--muted);text-decoration:none;font-size:12px;font-weight:500;transition:color .2s}
+.flinks a:hover{color:var(--text)}
+.fupd{font-size:11px;color:var(--muted)}
 @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
-@media(max-width:640px){:root{--cw:200px;--ch:113px;--gap:10px}nav{padding:0 18px;height:54px}.nav-links{display:none}.hero{height:70vw;min-height:300px}.hero-body{padding:0 18px 40px}.hero-title{font-size:22px}.hero-btns{flex-direction:column;gap:8px}.controls{padding:16px 16px 0;gap:8px}.row{padding:4px 16px 10px}.sec-hdr,.city-hdr,.sep,.grid{padding-left:16px;padding-right:16px}.modal-bg{padding:0;align-items:flex-end}.modal{border-radius:12px 12px 0 0;max-height:92vh;overflow-y:auto}.modal-body{flex-direction:column}.modal-vk{align-self:stretch;justify-content:center}footer{flex-direction:column;padding:20px 16px;gap:8px}.search-input{width:160px}}
-</style>
-</head>
-<body>
-<nav id="nav">
-  <a class="logo" href="#"><span class="logo-dot"></span>ДВИЖ КИНО</a>
-  <ul class="nav-links">
-    <li><a href="#" onclick="resetFilters();return false">Все фильмы</a></li>
-    <li><a href="#s-new">Новинки</a></li>
-    <li><a href="#s-cities">По городам</a></li>
-  </ul>
-  <span class="nav-count" id="navCount"></span>
-</nav>
-<section class="hero">
-  <div class="hero-img" id="heroBg"></div>
-  <div class="hero-grad"></div>
-  <div class="hero-body" id="heroBody"></div>
-</section>
-<div class="controls">
-  <div class="search-wrap">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-    <input class="search-input" id="searchInput" type="text" placeholder="Поиск...">
-  </div>
-  <div class="divider"></div>
-  <span class="flabel">Город</span>
-  <button class="fbtn active" data-city="all">Все</button>
-  <button class="fbtn tula" data-city="Тула">Тула</button>
-  <button class="fbtn kolomna" data-city="Коломна">Коломна</button>
-  <button class="fbtn stupino" data-city="Ступино">Ступино</button>
-  <button class="fbtn kaluga" data-city="Калуга">Калуга</button>
-</div>
-<div class="sections" id="sections"></div>
-<div class="modal-bg" id="modalBg">
-  <div class="modal">
-    <button class="modal-close" id="modalClose">&#x2715;</button>
-    <div class="modal-video" id="modalVideo"></div>
-    <div class="modal-body">
-      <div class="modal-info">
-        <div class="modal-title" id="mTitle"></div>
-        <div class="modal-meta" id="mMeta"></div>
-      </div>
-      <a class="modal-vk" id="mVk" href="#" target="_blank" rel="noopener">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M15.07 2H8.93C3.33 2 2 3.33 2 8.93v6.14C2 20.67 3.33 22 8.93 22h6.14C20.67 22 22 20.67 22 15.07V8.93C22 3.33 20.67 2 15.07 2zm3.08 13.57h-1.6c-.6 0-.78-.48-1.86-1.57-1-.94-1.39-1.07-1.63-1.07-.33 0-.42.1-.42.57v1.43c0 .41-.13.65-1.2.65-1.76 0-3.71-1.07-5.09-3.07C4.67 10.23 4.23 8.55 4.23 8.17c0-.24.1-.46.57-.46h1.6c.43 0 .59.2.75.65.82 2.39 2.2 4.49 2.77 4.49.21 0 .31-.1.31-.63V9.82c-.07-1.13-.67-1.22-.67-1.63 0-.21.17-.43.46-.43h2.52c.36 0 .49.2.49.62v3.37c0 .37.17.5.27.5.21 0 .39-.13.78-.52 1.21-1.35 2.07-3.43 2.07-3.43.12-.24.31-.46.74-.46h1.6c.48 0 .59.24.48.57-.2.93-2.13 3.65-2.13 3.65-.17.27-.23.39 0 .69.17.23.73.7 1.1 1.13.68.78 1.2 1.43 1.34 1.88.13.43-.1.65-.54.65z"/></svg>
-        Открыть в ВК
-      </a>
-    </div>
-  </div>
-</div>
-<footer>
-  <div class="footer-logo">ДВИЖ КИНО</div>
-  <div class="footer-links">
-    <a href="https://vk.com/dvizh_kino" target="_blank">ВКонтакте</a>
-    <a href="https://t.me/dvizhfilm" target="_blank">Telegram</a>
-    <a href="https://rutube.ru/channel/27037876" target="_blank">Рутуб</a>
-  </div>
-  <div class="footer-upd">Обновлено: """ + updated_at + " &middot; " + str(total) + """ фильмов</div>
-</footer>
-<script>
-""" + films_js + """
+@media(max-width:640px){
+  :root{--cw:200px;--ch:113px;--gap:10px}
+  nav{padding:0 18px;height:54px}.nav-links{display:none}
+  .hero{height:70vw;min-height:300px}.hero-body{padding:0 18px 40px}
+  .hero-title{font-size:22px}.hero-btns{flex-direction:column;gap:8px}
+  .controls{padding:16px 16px 0;gap:8px}.row{padding:4px 16px 10px}
+  .sh,.ch,.sep,.grid{padding-left:16px;padding-right:16px}
+  .mb{padding:0;align-items:flex-end}.md{border-radius:12px 12px 0 0;max-height:92vh;overflow-y:auto}
+  .mby{flex-direction:column}.mvk{align-self:stretch;justify-content:center}
+  footer{flex-direction:column;padding:20px 16px;gap:8px}.si{width:160px}
+}
+"""
+
+JS = r"""
 const CITIES=["Тула","Коломна","Ступино","Калуга"];
-const CC={"\u0422\u0443\u043b\u0430":"tula","\u041a\u043e\u043b\u043e\u043c\u043d\u0430":"kolomna","\u0421\u0442\u0443\u043f\u0438\u043d\u043e":"stupino","\u041a\u0430\u043b\u0443\u0433\u0430":"kaluga"};
-const GRADS={"\u0422\u0443\u043b\u0430":"linear-gradient(135deg,#2a1005,#5c3010)","\u041a\u043e\u043b\u043e\u043c\u043d\u0430":"linear-gradient(135deg,#05101e,#0e2840)","\u0421\u0442\u0443\u043f\u0438\u043d\u043e":"linear-gradient(135deg,#05130a,#0a2e16)","\u041a\u0430\u043b\u0443\u0433\u0430":"linear-gradient(135deg,#10051e,#261048)","":"linear-gradient(135deg,#111118,#1a1a22)"};
-let activeCity="all",searchQ="";
+const CC={"Тула":"tula","Коломна":"kolomna","Ступино":"stupino","Калуга":"kaluga"};
+const GR={
+  "Тула":"linear-gradient(135deg,#2a1005,#5c3010)",
+  "Коломна":"linear-gradient(135deg,#05101e,#0e2840)",
+  "Ступино":"linear-gradient(135deg,#05130a,#0a2e16)",
+  "Калуга":"linear-gradient(135deg,#10051e,#261048)",
+  "":"linear-gradient(135deg,#111118,#1a1a22)"
+};
+let activeCity="all", searchQ="";
 const cc=c=>CC[c]||"x";
 const fmt=n=>n>=1000?(n/1000).toFixed(1)+"K":String(n);
 const vkLink=id=>"https://vk.com/video-24961777_"+id;
-const imgObs=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){const i=e.target;if(i.dataset.src){i.src=i.dataset.src;i.onload=()=>i.classList.add("on");i.onerror=()=>i.style.display="none";imgObs.unobserve(i)}}})},{rootMargin:"200px"});
-function li(src){const i=document.createElement("img");i.className="card-img";i.alt="";i.referrerPolicy="no-referrer";if(src){i.dataset.src=src;imgObs.observe(i)}return i}
-function makeCard(f){const ccc=cc(f.city);const card=document.createElement("div");card.className="card";const wrap=document.createElement("div");wrap.className="card-thumb";wrap.style.background=GRADS[f.city]||GRADS[""];if(f.thumb)wrap.appendChild(li(f.thumb));wrap.insertAdjacentHTML("beforeend","<div class='card-play'><div class='card-play-btn'><svg viewBox='0 0 24 24'><path d='M8 5v14l11-7z'/></svg></div></div><div class='card-dur'>"+f.dur+"</div>"+(f.isNew?"<div class='card-new'>New</div>":f.isFeatured?"<div class='card-hot'>&#9733; Top</div>":""));const info=document.createElement("div");info.className="card-info";info.innerHTML="<div class='card-title'>"+f.title+"</div><div class='card-foot'><span class='card-city "+ccc+"'>"+(f.city||"Разное")+"</span><span class='card-views'>"+fmt(f.views)+" просм.</span></div>";card.appendChild(wrap);card.appendChild(info);card.addEventListener("click",()=>openModal(f));return card}
-function makeRow(films){const r=document.createElement("div");r.className="row";films.forEach(f=>r.appendChild(makeCard(f)));return r}
-function openModal(f){const ccc=cc(f.city);document.getElementById("mTitle").textContent=f.title;document.getElementById("mMeta").innerHTML=(f.city?"<span class='m-pill "+ccc+"'>"+f.city+"</span>":"")+" <span class='m-info'>"+f.year+"</span><span class='m-info'>&#183;</span><span class='m-info'>"+f.dur+"</span><span class='m-info'>&#183;</span><span class='m-info'>"+fmt(f.views)+" просм.</span>";document.getElementById("mVk").href=vkLink(f.id);document.getElementById("modalVideo").innerHTML="<iframe src='"+f.player+"' allow='autoplay;encrypted-media;fullscreen;picture-in-picture' allowfullscreen></iframe>";document.getElementById("modalBg").classList.add("open");document.body.style.overflow="hidden"}
-function closeModal(){document.getElementById("modalBg").classList.remove("open");setTimeout(()=>document.getElementById("modalVideo").innerHTML="",300);document.body.style.overflow=""}
-document.getElementById("modalClose").addEventListener("click",closeModal);
-document.getElementById("modalBg").addEventListener("click",e=>{if(e.target===e.currentTarget)closeModal()});
-document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal()});
-function buildHero(){const pool=FILMS.filter(f=>f.isFeatured&&f.views>=800&&f.thumb&&f.thumb.includes("userapi"));const f=pool[Math.floor(Math.random()*pool.length)]||FILMS[0];const ccc=cc(f.city);const bg=document.getElementById("heroBg");const img=new Image();img.referrerPolicy="no-referrer";img.onload=()=>{bg.style.backgroundImage="url("+f.thumb+")";bg.classList.add("loaded")};img.src=f.thumb;document.getElementById("heroBody").innerHTML="<div class='hero-tags'><div class='hero-tag'>ДВИЖ КИНО</div>"+(f.city?"<span class='city-pill "+ccc+"'>"+f.city+"</span>":"")+"</div><h1 class='hero-title'>"+f.title+"</h1><div class='hero-meta'><span>"+f.year+"</span><span class='hero-sep'></span><span>"+f.dur+"</span><span class='hero-sep'></span><span>"+fmt(f.views)+" просм.</span></div><div class='hero-btns'><button class='btn-watch' id='heroBtnPlay'><svg width='14' height='14' viewBox='0 0 24 24' fill='currentColor'><path d='M8 5v14l11-7z'/></svg>Смотреть</button><button class='btn-more' onclick='document.getElementById(\"sections\").scrollIntoView({behavior:\"smooth\"})'>Все фильмы</button></div>";document.getElementById("heroBtnPlay").addEventListener("click",()=>openModal(f))}
-function sep(){return Object.assign(document.createElement("div"),{className:"sep"})}
-function buildSections(){const c=document.getElementById("sections");c.innerHTML="";const fil=FILMS.filter(f=>(activeCity==="all"||f.city===activeCity)&&(!searchQ||f.title.toLowerCase().includes(searchQ)));document.getElementById("navCount").textContent=FILMS.length+" фильмов";if(!fil.length){c.innerHTML="<div class='empty'>Ничего не найдено</div>";return}if(activeCity!=="all"||searchQ){const s=document.createElement("div");s.className="sec";s.innerHTML="<div class='sec-hdr'><div class='sec-title'>"+(activeCity!=="all"?activeCity:"Результаты")+"</div><span class='sec-count'>"+fil.length+" фильмов</span></div>";const g=document.createElement("div");g.className="grid";fil.forEach(f=>g.appendChild(makeCard(f)));s.appendChild(g);c.appendChild(s);return}const novie=FILMS.filter(f=>f.isNew);if(novie.length){const s=document.createElement("section");s.id="s-new";s.className="sec";s.innerHTML="<div class='sec-hdr'><div class='sec-title'>Новинки</div><span class='sec-count'>"+novie.length+"</span></div>";s.appendChild(makeRow(novie));c.appendChild(s);c.appendChild(sep())}const pop=[...FILMS].sort((a,b)=>b.views-a.views).slice(0,12);{const s=document.createElement("section");s.className="sec";s.innerHTML="<div class='sec-hdr'><div class='sec-title'>Самое популярное</div><span class='sec-count'>топ 12</span></div>";s.appendChild(makeRow(pop));c.appendChild(s);c.appendChild(sep())}const cw=document.createElement("div");cw.id="s-cities";CITIES.forEach(city=>{const films=FILMS.filter(f=>f.city===city);if(!films.length)return;const cs=document.createElement("div");cs.className="city-sec";const ch=document.createElement("div");ch.className="city-hdr";ch.innerHTML="<div class='city-name "+CC[city]+"'>"+city+"</div><div class='city-rule'></div><div class='city-badge'>"+films.length+" фильмов</div>";cs.appendChild(ch);cs.appendChild(makeRow(films));cw.appendChild(cs)});const uncat=FILMS.filter(f=>!f.city);if(uncat.length){const cs=document.createElement("div");cs.className="city-sec";const ch=document.createElement("div");ch.className="city-hdr";ch.innerHTML="<div class='city-name' style='color:var(--text-muted)'>Разное</div><div class='city-rule'></div><div class='city-badge'>"+uncat.length+" видео</div>";cs.appendChild(ch);cs.appendChild(makeRow(uncat));cw.appendChild(cs)}c.appendChild(cw)}
-document.querySelector(".controls").addEventListener("click",e=>{const btn=e.target.closest("[data-city]");if(!btn)return;activeCity=btn.dataset.city;document.querySelectorAll(".fbtn").forEach(b=>b.classList.remove("active"));btn.classList.add("active");buildSections()});
-let dt;document.getElementById("searchInput").addEventListener("input",e=>{clearTimeout(dt);dt=setTimeout(()=>{searchQ=e.target.value.trim().toLowerCase();buildSections()},200)});
-function resetFilters(){activeCity="all";searchQ="";document.getElementById("searchInput").value="";document.querySelectorAll(".fbtn").forEach(b=>b.classList.remove("active"));document.querySelector("[data-city='all']").classList.add("active");buildSections()}
-window.addEventListener("scroll",()=>{document.getElementById("nav").classList.toggle("solid",window.scrollY>40)},{passive:true});
+
+// Lazy image loader
+const obs=new IntersectionObserver(es=>{es.forEach(e=>{
+  if(e.isIntersecting){
+    const i=e.target;
+    if(i.dataset.src){i.src=i.dataset.src;i.onload=()=>i.classList.add("on");i.onerror=()=>i.style.display="none";obs.unobserve(i)}
+  }
+})},{rootMargin:"200px"});
+
+function li(src){
+  const i=document.createElement("img");
+  i.className="ci";i.alt="";i.referrerPolicy="no-referrer";
+  if(src){i.dataset.src=src;obs.observe(i);}
+  return i;
+}
+
+function makeCard(f){
+  const ccc=cc(f.city);
+  const card=document.createElement("div");card.className="card";
+  const wrap=document.createElement("div");wrap.className="ct";
+  wrap.style.background=GR[f.city]||GR[""];
+  if(f.thumb)wrap.appendChild(li(f.thumb));
+  const playDiv=document.createElement("div");playDiv.className="cp";
+  playDiv.innerHTML="<div class='cpb'><svg viewBox='0 0 24 24'><path d='M8 5v14l11-7z'/></svg></div>";
+  wrap.appendChild(playDiv);
+  const durDiv=document.createElement("div");durDiv.className="cd";durDiv.textContent=f.dur;
+  wrap.appendChild(durDiv);
+  if(f.isNew){const b=document.createElement("div");b.className="cn2";b.textContent="Новинка";wrap.appendChild(b);}
+  else if(f.isFeat){const b=document.createElement("div");b.className="ch2";b.textContent="★ Топ";wrap.appendChild(b);}
+  const info=document.createElement("div");info.className="ci2";
+  const title=document.createElement("div");title.className="tl";title.textContent=f.title;
+  const foot=document.createElement("div");foot.className="cf";
+  const cpill=document.createElement("span");cpill.className="cc "+ccc;cpill.textContent=f.city||"Разное";
+  const views=document.createElement("span");views.className="cv";views.textContent=fmt(f.views)+" просм.";
+  foot.appendChild(cpill);foot.appendChild(views);
+  info.appendChild(title);info.appendChild(foot);
+  card.appendChild(wrap);card.appendChild(info);
+  card.addEventListener("click",()=>openModal(f));
+  return card;
+}
+
+function makeRow(films){
+  const r=document.createElement("div");r.className="row";
+  films.forEach(f=>r.appendChild(makeCard(f)));
+  return r;
+}
+
+function openModal(f){
+  const ccc=cc(f.city);
+  document.getElementById("mt").textContent=f.title;
+  const mm=document.getElementById("mm");
+  mm.innerHTML="";
+  if(f.city){const p=document.createElement("span");p.className="mp "+ccc;p.textContent=f.city;mm.appendChild(p);}
+  ["·",f.year,"·",f.dur,"·",fmt(f.views)+" просм."].forEach(t=>{const s=document.createElement("span");s.className="minfo";s.textContent=t;mm.appendChild(s);});
+  document.getElementById("mvk2").href=vkLink(f.id);
+  document.getElementById("mv").innerHTML='<iframe src="'+f.player+'" allow="autoplay;encrypted-media;fullscreen;picture-in-picture" allowfullscreen></iframe>';
+  document.getElementById("mb").classList.add("open");
+  document.body.style.overflow="hidden";
+}
+function closeModal(){
+  document.getElementById("mb").classList.remove("open");
+  setTimeout(()=>document.getElementById("mv").innerHTML="",300);
+  document.body.style.overflow="";
+}
+document.getElementById("mc").addEventListener("click",closeModal);
+document.getElementById("mb").addEventListener("click",e=>{if(e.target===e.currentTarget)closeModal();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+
+function buildHero(){
+  const pool=FILMS.filter(f=>f.isFeat&&f.views>=800&&f.thumb&&f.thumb.includes("userapi"));
+  const f=pool[Math.floor(Math.random()*pool.length)]||FILMS[0];
+  if(!f)return;
+  const ccc=cc(f.city);
+  // Set background
+  const bg=document.getElementById("hbg");
+  const img=new Image();img.referrerPolicy="no-referrer";
+  img.onload=()=>{bg.style.backgroundImage="url("+f.thumb+")";bg.classList.add("on");};
+  img.src=f.thumb;
+  // Tags
+  const tags=document.getElementById("htags");
+  tags.innerHTML="<div class='live'>ДВИЖ КИНО</div>";
+  if(f.city){const cp=document.createElement("span");cp.className="cpill "+ccc;cp.textContent=f.city;tags.appendChild(cp);}
+  // Title
+  document.getElementById("htitle").textContent=f.title;
+  // Meta
+  document.getElementById("hmeta").innerHTML=
+    "<span>"+f.year+"</span><span class='hero-sep'></span><span>"+f.dur+"</span><span class='hero-sep'></span><span>"+fmt(f.views)+" просм.</span>";
+  // Buttons
+  document.getElementById("hplay").onclick=()=>openModal(f);
+  document.getElementById("hall").onclick=()=>document.getElementById("sections").scrollIntoView({behavior:"smooth"});
+}
+
+function sep(){return Object.assign(document.createElement("div"),{className:"sep"});}
+
+function buildSections(){
+  const c=document.getElementById("sections");c.innerHTML="";
+  const fil=FILMS.filter(f=>(activeCity==="all"||f.city===activeCity)&&(!searchQ||f.title.toLowerCase().includes(searchQ)));
+  document.getElementById("nc").textContent=FILMS.length+" фильмов";
+  if(!fil.length){c.innerHTML="<div class='empty'>Ничего не найдено</div>";return;}
+  if(activeCity!=="all"||searchQ){
+    const s=document.createElement("div");s.className="sec";
+    const sh=document.createElement("div");sh.className="sh";
+    sh.innerHTML="<div class='st'>"+(activeCity!=="all"?activeCity:"Результаты")+"</div><span class='sc'>"+fil.length+" фильмов</span>";
+    const g=document.createElement("div");g.className="grid";
+    fil.forEach(f=>g.appendChild(makeCard(f)));
+    s.appendChild(sh);s.appendChild(g);c.appendChild(s);return;
+  }
+  // Новинки
+  const novie=FILMS.filter(f=>f.isNew);
+  if(novie.length){
+    const s=document.createElement("section");s.id="s-new";s.className="sec";
+    const sh=document.createElement("div");sh.className="sh";
+    sh.innerHTML="<div class='st'>Новинки</div><span class='sc'>"+novie.length+"</span>";
+    s.appendChild(sh);s.appendChild(makeRow(novie));c.appendChild(s);c.appendChild(sep());
+  }
+  // Популярное
+  const pop=[...FILMS].sort((a,b)=>b.views-a.views).slice(0,12);
+  {const s=document.createElement("section");s.className="sec";
+  const sh=document.createElement("div");sh.className="sh";
+  sh.innerHTML="<div class='st'>Самое популярное</div><span class='sc'>топ 12</span>";
+  s.appendChild(sh);s.appendChild(makeRow(pop));c.appendChild(s);c.appendChild(sep());}
+  // По городам
+  const cw=document.createElement("div");cw.id="s-cities";
+  CITIES.forEach(city=>{
+    const films=FILMS.filter(f=>f.city===city);if(!films.length)return;
+    const cs=document.createElement("div");cs.className="cs";
+    const ch=document.createElement("div");ch.className="ch";
+    const cn=document.createElement("div");cn.className="cn "+CC[city];cn.textContent=city;
+    const cr=document.createElement("div");cr.className="cr";
+    const cb=document.createElement("div");cb.className="cb";cb.textContent=films.length+" фильмов";
+    ch.appendChild(cn);ch.appendChild(cr);ch.appendChild(cb);
+    cs.appendChild(ch);cs.appendChild(makeRow(films));cw.appendChild(cs);
+  });
+  const uncat=FILMS.filter(f=>!f.city);
+  if(uncat.length){
+    const cs=document.createElement("div");cs.className="cs";
+    const ch=document.createElement("div");ch.className="ch";
+    ch.innerHTML="<div class='cn' style='color:var(--muted)'>Разное</div><div class='cr'></div><div class='cb'>"+uncat.length+" видео</div>";
+    cs.appendChild(ch);cs.appendChild(makeRow(uncat));cw.appendChild(cs);
+  }
+  c.appendChild(cw);
+}
+
+// Controls
+document.querySelector(".controls").addEventListener("click",e=>{
+  const btn=e.target.closest("[data-city]");if(!btn)return;
+  activeCity=btn.dataset.city;
+  document.querySelectorAll(".fb").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");buildSections();
+});
+let dt;
+document.getElementById("si").addEventListener("input",e=>{
+  clearTimeout(dt);dt=setTimeout(()=>{searchQ=e.target.value.trim().toLowerCase();buildSections();},200);
+});
+function resetFilters(){
+  activeCity="all";searchQ="";document.getElementById("si").value="";
+  document.querySelectorAll(".fb").forEach(b=>b.classList.remove("active"));
+  document.querySelector("[data-city='all']").classList.add("active");buildSections();
+}
+window.addEventListener("scroll",()=>{
+  document.getElementById("nav").classList.toggle("solid",window.scrollY>40);
+},{passive:true});
+
 buildHero();buildSections();
-</script>
-</body>
-</html>"""
+"""
+
+def build_html(films_js, total, updated_at):
+    return (
+        '<!DOCTYPE html>\n<html lang="ru">\n<head>\n'
+        '<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        '<title>ДВИЖ КИНО</title>\n'
+        '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
+        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
+        '&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">\n'
+        '<style>' + CSS + '</style>\n'
+        '</head>\n<body>\n'
+        '<nav id="nav">\n'
+        '  <a class="logo" href="#"><span class="dot"></span>ДВИЖ КИНО</a>\n'
+        '  <ul class="nav-links">\n'
+        '    <li><a href="#" onclick="resetFilters();return false">Все фильмы</a></li>\n'
+        '    <li><a href="#s-new">Новинки</a></li>\n'
+        '    <li><a href="#s-cities">По городам</a></li>\n'
+        '  </ul>\n'
+        '  <span class="nav-count" id="nc"></span>\n'
+        '</nav>\n'
+        '<section class="hero">\n'
+        '  <div class="hero-img" id="hbg"></div>\n'
+        '  <div class="hero-grad"></div>\n'
+        '  <div class="hero-body">\n'
+        '    <div class="hero-tags" id="htags"></div>\n'
+        '    <h1 class="hero-title" id="htitle"></h1>\n'
+        '    <div class="hero-meta" id="hmeta"></div>\n'
+        '    <div class="hero-btns">\n'
+        '      <button class="btn-w" id="hplay">'
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
+        'Смотреть</button>\n'
+        '      <button class="btn-a" id="hall">Все фильмы</button>\n'
+        '    </div>\n'
+        '  </div>\n'
+        '</section>\n'
+        '<div class="controls">\n'
+        '  <div class="sw">\n'
+        '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">'
+        '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>\n'
+        '    <input class="si" id="si" type="text" placeholder="Поиск...">\n'
+        '  </div>\n'
+        '  <div class="dv"></div>\n'
+        '  <span class="fl">Город</span>\n'
+        '  <button class="fb active" data-city="all">Все</button>\n'
+        '  <button class="fb tula" data-city="Тула">Тула</button>\n'
+        '  <button class="fb kolomna" data-city="Коломна">Коломна</button>\n'
+        '  <button class="fb stupino" data-city="Ступино">Ступино</button>\n'
+        '  <button class="fb kaluga" data-city="Калуга">Калуга</button>\n'
+        '</div>\n'
+        '<div class="sections" id="sections"></div>\n'
+        '<div class="mb" id="mb">\n'
+        '  <div class="md">\n'
+        '    <button class="mc" id="mc">&#x2715;</button>\n'
+        '    <div class="mv" id="mv"></div>\n'
+        '    <div class="mby">\n'
+        '      <div class="mi"><div class="mt" id="mt"></div><div class="mm" id="mm"></div></div>\n'
+        '      <a class="mvk" id="mvk2" href="#" target="_blank" rel="noopener">\n'
+        '        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">'
+        '<path d="M15.07 2H8.93C3.33 2 2 3.33 2 8.93v6.14C2 20.67 3.33 22 8.93 22h6.14'
+        'C20.67 22 22 20.67 22 15.07V8.93C22 3.33 20.67 2 15.07 2zm3.08 13.57h-1.6'
+        'c-.6 0-.78-.48-1.86-1.57-1-.94-1.39-1.07-1.63-1.07-.33 0-.42.1-.42.57v1.43'
+        'c0 .41-.13.65-1.2.65-1.76 0-3.71-1.07-5.09-3.07C4.67 10.23 4.23 8.55 4.23 8.17'
+        'c0-.24.1-.46.57-.46h1.6c.43 0 .59.2.75.65.82 2.39 2.2 4.49 2.77 4.49.21 0 .31-.1'
+        '.31-.63V9.82c-.07-1.13-.67-1.22-.67-1.63 0-.21.17-.43.46-.43h2.52c.36 0 .49.2'
+        '.49.62v3.37c0 .37.17.5.27.5.21 0 .39-.13.78-.52 1.21-1.35 2.07-3.43 2.07-3.43'
+        '.12-.24.31-.46.74-.46h1.6c.48 0 .59.24.48.57-.2.93-2.13 3.65-2.13 3.65-.17.27'
+        '-.23.39 0 .69.17.23.73.7 1.1 1.13.68.78 1.2 1.43 1.34 1.88.13.43-.1.65-.54.65z"/>'
+        '</svg> Открыть в ВК\n'
+        '      </a>\n'
+        '    </div>\n'
+        '  </div>\n'
+        '</div>\n'
+        '<footer>\n'
+        '  <div class="fl2">ДВИЖ КИНО</div>\n'
+        '  <div class="flinks">\n'
+        '    <a href="https://vk.com/dvizh_kino" target="_blank">ВКонтакте</a>\n'
+        '    <a href="https://t.me/dvizhfilm" target="_blank">Telegram</a>\n'
+        '    <a href="https://rutube.ru/channel/27037876" target="_blank">Рутуб</a>\n'
+        '  </div>\n'
+        '  <div class="fupd">Обновлено: ' + updated_at + ' &middot; ' + str(total) + ' фильмов</div>\n'
+        '</footer>\n'
+        '<script>\n' + films_js + '\n' + JS + '\n</script>\n'
+        '</body>\n</html>'
+    )
 
 def main():
     if not VK_TOKEN:
-        raise ValueError("VK_TOKEN не задан! Добавь токен в GitHub Secrets.")
+        raise ValueError("VK_TOKEN не задан!")
     print("Загружаю видео из ВКонтакте...")
     raw = fetch_videos()
-    print(f"Всего видео: {len(raw)}")
-    films = process_videos(raw)
-    films_js = to_js(films)
-    updated_at = datetime.now().strftime("%d.%m.%Y %H:%M")
-    html = build_html(films_js, len(films), updated_at)
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+    print(f"Всего: {len(raw)}")
+    films = process(raw)
+    js = to_js(films)
+    updated = datetime.now().strftime("%d.%m.%Y %H:%M")
+    html = build_html(js, len(films), updated)
+    with open(OUT, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"Готово! Сохранено {OUTPUT_FILE} ({len(films)} фильмов, {len(html):,} байт)")
+    print(f"Готово: {OUT} ({len(films)} фильмов, {len(html):,} байт)")
 
 if __name__ == "__main__":
     main()
