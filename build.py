@@ -1,7 +1,6 @@
 """
 ДВИЖ КИНО — автосборка сайта
-Увеличен логотип, убрана надпись "ДВИЖ КИНО" с главного баннера,
-плашки "Новинка"/"Топ" перенесены в правый верхний угол карточек.
+Уменьшен hero-блок на десктопе, убраны лишние надписи, отключено размытие.
 """
 import os, re, requests
 from datetime import datetime
@@ -12,7 +11,7 @@ VK_VER     = "5.131"
 OUT        = "index.html"
 CITIES     = ["Тула", "Коломна", "Ступино", "Калуга"]
 
-LOGO_URL = "logo.png"   # Укажите путь к логотипу (например "logo.png")
+LOGO_URL = ""   # Укажите путь к логотипу (например "logo.png")
 RUBRIC_PHRASE = "А вы знали?"
 
 def fetch_videos():
@@ -123,9 +122,9 @@ nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom
 .nav-links a{color:var(--dim);text-decoration:none;font-size:13px;font-weight:500;transition:color .2s}
 .nav-links a:hover{color:var(--text)}
 .nav-count{font-size:12px;color:var(--muted)}
-.hero{position:relative;height:88vh;min-height:520px;display:flex;align-items:flex-end;overflow:hidden}
-.hero-img{position:absolute;inset:0;background-size:cover;background-position:center;transition:transform 10s ease}
-.hero-img.on{transform:scale(1.04)}
+.hero{position:relative;height:60vh;min-height:480px;display:flex;align-items:flex-end;overflow:hidden}
+.hero-img{position:absolute;inset:0;background-size:cover;background-position:center;transition:transform 0s ease}
+.hero-img.on{transform:none}
 .hero-grad{position:absolute;inset:0;background:linear-gradient(to right,rgba(12,12,16,.98) 0%,rgba(12,12,16,.6) 45%,rgba(12,12,16,.1) 80%),linear-gradient(to top,rgba(12,12,16,1) 0%,rgba(12,12,16,.5) 30%,transparent 65%)}
 .hero-body{position:relative;z-index:2;padding:0 40px 64px;max-width:560px;animation:fadeUp .8s ease both}
 .hero-tags{display:flex;align-items:center;gap:8px;margin-bottom:16px}
@@ -348,10 +347,8 @@ function buildHero(){
   img.onload=()=>{bg.style.backgroundImage="url("+f.thumb+")";bg.classList.add("on");};
   img.src=f.thumb;
   const tags=document.getElementById("htags");
-  // Убираем блок .live (надпись "ДВИЖ КИНО")
+  // Полностью очищаем блок с тегами — убираем и город, и "ДВИЖ КИНО"
   tags.innerHTML="";
-  if(f.city && !f.rubric){const cp=document.createElement("span");cp.className="cpill "+rubricClass;cp.textContent=f.city;tags.appendChild(cp);}
-  else if(f.rubric === "aznali"){const cp=document.createElement("span");cp.className="cpill aznali";cp.textContent="А вы знали?";tags.appendChild(cp);}
   document.getElementById("htitle").textContent=f.title;
   document.getElementById("hmeta").innerHTML=
     "<span>"+f.year+"</span><span class='hero-sep'></span><span>"+f.dur+"</span><span class='hero-sep'></span><span>"+fmt(f.views)+" просм.</span>";
