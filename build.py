@@ -1,6 +1,6 @@
 """
 ДВИЖ КИНО — автосборка сайта
-Уменьшен hero-блок на десктопе, убраны лишние надписи, отключено размытие.
+Добавлены favicon, apple-touch-icon, мета-теги для мобильных устройств.
 """
 import os, re, requests
 from datetime import datetime
@@ -11,7 +11,7 @@ VK_VER     = "5.131"
 OUT        = "index.html"
 CITIES     = ["Тула", "Коломна", "Ступино", "Калуга"]
 
-LOGO_URL = "logo.png"   # Укажите путь к логотипу (например "logo.png")
+LOGO_URL = ""   # Укажите путь к логотипу (например "logo.png")
 RUBRIC_PHRASE = "А вы знали?"
 
 def fetch_videos():
@@ -347,7 +347,6 @@ function buildHero(){
   img.onload=()=>{bg.style.backgroundImage="url("+f.thumb+")";bg.classList.add("on");};
   img.src=f.thumb;
   const tags=document.getElementById("htags");
-  // Полностью очищаем блок с тегами — убираем и город, и "ДВИЖ КИНО"
   tags.innerHTML="";
   document.getElementById("htitle").textContent=f.title;
   document.getElementById("hmeta").innerHTML=
@@ -462,6 +461,13 @@ def build_html(films_js, total, updated_at):
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
         '<title>ДВИЖ КИНО</title>\n'
+        # Иконки и мета-теги для браузера и мобильных устройств
+        '<link rel="icon" type="image/x-icon" href="/favicon.ico">\n'
+        '<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">\n'
+        '<link rel="apple-touch-icon" href="/apple-touch-icon.png">\n'
+        '<meta name="theme-color" content="#0c0c10">\n'
+        '<meta name="apple-mobile-web-app-capable" content="yes">\n'
+        '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n'
         '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
         '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
         '&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">\n'
