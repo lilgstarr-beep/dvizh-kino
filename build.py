@@ -1,6 +1,7 @@
 """
 ДВИЖ КИНО — автосборка сайта
-Увеличена высота шапки и размер логотипа.
+Увеличен логотип, убрана надпись "ДВИЖ КИНО" с главного баннера,
+плашки "Новинка"/"Топ" перенесены в правый верхний угол карточек.
 """
 import os, re, requests
 from datetime import datetime
@@ -11,7 +12,7 @@ VK_VER     = "5.131"
 OUT        = "index.html"
 CITIES     = ["Тула", "Коломна", "Ступино", "Калуга"]
 
-LOGO_URL = "logo.png"   # Укажите путь к логотипу (например "logo.png")
+LOGO_URL = ""   # Укажите путь к логотипу (например "logo.png")
 RUBRIC_PHRASE = "А вы знали?"
 
 def fetch_videos():
@@ -115,8 +116,8 @@ CSS = """
 body{background:var(--bg);color:var(--text);font-family:Inter,sans-serif;overflow-x:hidden;min-height:100vh;-webkit-font-smoothing:antialiased}
 nav{position:fixed;top:0;left:0;right:0;z-index:200;height:76px;padding:0 48px;display:flex;align-items:center;justify-content:space-between;transition:background .3s}
 nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom:1px solid var(--bd)}
-.logo{font-family:Playfair Display,serif;font-size:26px;font-weight:700;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:8px}
-.logo img{height:44px;width:auto;display:block}
+.logo{font-family:Playfair Display,serif;font-size:39px;font-weight:700;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:8px}
+.logo img{height:66px;width:auto;display:block}
 .dot{width:8px;height:8px;background:var(--red);border-radius:50%}
 .nav-links{display:flex;gap:28px;list-style:none}
 .nav-links a{color:var(--dim);text-decoration:none;font-size:13px;font-weight:500;transition:color .2s}
@@ -178,8 +179,8 @@ nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom
 .cpb{width:44px;height:44px;background:rgba(255,255,255,.92);border-radius:50%;display:flex;align-items:center;justify-content:center}
 .cpb svg{fill:#0c0c10;width:18px;height:18px;margin-left:2px}
 .cd{position:absolute;bottom:8px;right:8px;font-size:10px;font-weight:600;color:#fff;background:rgba(0,0,0,.72);padding:2px 6px;border-radius:4px;z-index:2}
-.cn2{position:absolute;top:8px;left:8px;background:var(--red);color:#fff;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:4px;z-index:2}
-.ch2{position:absolute;top:8px;left:8px;background:rgba(232,188,106,.88);color:#0c0c10;font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;z-index:2}
+.cn2{position:absolute;top:8px;right:8px;background:var(--red);color:#fff;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:4px;z-index:2}
+.ch2{position:absolute;top:8px;right:8px;background:rgba(232,188,106,.88);color:#0c0c10;font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;z-index:2}
 .ci2{padding:0 2px}
 .tl{font-size:13px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:5px;letter-spacing:-.01em}
 .cf{display:flex;align-items:center;gap:6px}
@@ -217,8 +218,8 @@ footer{border-top:1px solid var(--bd);padding:24px 40px;display:flex;align-items
 @media(max-width:640px){
   :root{--cw:200px;--ch:113px;--gap:10px}
   nav{padding:0 20px;height:64px}
-  .logo{font-size:22px}
-  .logo img{height:36px}
+  .logo{font-size:33px}
+  .logo img{height:54px}
   .nav-links{display:none}
   .hero{height:70vw;min-height:300px}.hero-body{padding:0 18px 40px}
   .hero-title{font-size:22px}.hero-btns{flex-direction:column;gap:8px}
@@ -347,7 +348,8 @@ function buildHero(){
   img.onload=()=>{bg.style.backgroundImage="url("+f.thumb+")";bg.classList.add("on");};
   img.src=f.thumb;
   const tags=document.getElementById("htags");
-  tags.innerHTML="<div class='live'>ДВИЖ КИНО</div>";
+  // Убираем блок .live (надпись "ДВИЖ КИНО")
+  tags.innerHTML="";
   if(f.city && !f.rubric){const cp=document.createElement("span");cp.className="cpill "+rubricClass;cp.textContent=f.city;tags.appendChild(cp);}
   else if(f.rubric === "aznali"){const cp=document.createElement("span");cp.className="cpill aznali";cp.textContent="А вы знали?";tags.appendChild(cp);}
   document.getElementById("htitle").textContent=f.title;
