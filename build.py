@@ -12,7 +12,7 @@ VK_VER     = "5.131"
 OUT        = "index.html"
 CITIES     = ["Тула", "Коломна", "Ступино", "Калуга"]
 
-LOGO_URL = ""   # Укажите путь к логотипу (например "logo.png")
+LOGO_URL = "logo.png"   # Укажите путь к логотипу (например "logo.png")
 RUBRIC_PHRASE = "А вы знали?"
 
 def fetch_videos():
