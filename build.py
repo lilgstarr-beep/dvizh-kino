@@ -1,6 +1,6 @@
 """
 ДВИЖ КИНО — автосборка сайта
-Исправлена ширина карточек на мобильных: 200px (помещается 2 шт).
+Увеличена высота шапки и размер логотипа.
 """
 import os, re, requests
 from datetime import datetime
@@ -11,7 +11,7 @@ VK_VER     = "5.131"
 OUT        = "index.html"
 CITIES     = ["Тула", "Коломна", "Ступино", "Калуга"]
 
-LOGO_URL = "logo.png"   # Укажите путь к логотипу (например "logo.png")
+LOGO_URL = ""   # Укажите путь к логотипу (например "logo.png")
 RUBRIC_PHRASE = "А вы знали?"
 
 def fetch_videos():
@@ -113,10 +113,10 @@ CSS = """
   --cw:280px;--ch:158px;--gap:12px;--r:8px}
 *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);font-family:Inter,sans-serif;overflow-x:hidden;min-height:100vh;-webkit-font-smoothing:antialiased}
-nav{position:fixed;top:0;left:0;right:0;z-index:200;height:60px;padding:0 40px;display:flex;align-items:center;justify-content:space-between;transition:background .3s}
+nav{position:fixed;top:0;left:0;right:0;z-index:200;height:76px;padding:0 48px;display:flex;align-items:center;justify-content:space-between;transition:background .3s}
 nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom:1px solid var(--bd)}
-.logo{font-family:Playfair Display,serif;font-size:20px;font-weight:700;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:6px}
-.logo img{height:32px;width:auto;display:block}
+.logo{font-family:Playfair Display,serif;font-size:26px;font-weight:700;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:8px}
+.logo img{height:44px;width:auto;display:block}
 .dot{width:8px;height:8px;background:var(--red);border-radius:50%}
 .nav-links{display:flex;gap:28px;list-style:none}
 .nav-links a{color:var(--dim);text-decoration:none;font-size:13px;font-weight:500;transition:color .2s}
@@ -216,14 +216,16 @@ footer{border-top:1px solid var(--bd);padding:24px 40px;display:flex;align-items
 @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:640px){
   :root{--cw:200px;--ch:113px;--gap:10px}
-  nav{padding:0 18px;height:54px}.nav-links{display:none}
+  nav{padding:0 20px;height:64px}
+  .logo{font-size:22px}
+  .logo img{height:36px}
+  .nav-links{display:none}
   .hero{height:70vw;min-height:300px}.hero-body{padding:0 18px 40px}
   .hero-title{font-size:22px}.hero-btns{flex-direction:column;gap:8px}
   .controls{padding:16px 16px 0;gap:8px}.row{padding:4px 16px 10px}
   .sh,.ch,.sep,.grid{padding-left:16px;padding-right:16px}
   .grid{grid-template-columns:1fr;gap:16px}
   .grid .card{width:100%}
-  /* Исправление высоты карточек в сетке на мобильных (соотношение 16:9) */
   .grid .card .ct{height:auto;aspect-ratio:16/9}
   .mb{padding:0;align-items:flex-end}.md{border-radius:12px 12px 0 0;max-height:92vh;overflow-y:auto}
   .mby{flex-direction:column}.mvk{align-self:stretch;justify-content:center}
