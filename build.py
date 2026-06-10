@@ -1,6 +1,6 @@
 """
 ДВИЖ КИНО — автосборка сайта
-Добавлены favicon, apple-touch-icon, мета-теги для мобильных устройств.
+Новинки определяются по текущему месяцу (год+месяц), баннер показывает случайную новинку.
 """
 import os, re, requests
 from datetime import datetime
@@ -11,7 +11,7 @@ VK_VER     = "5.131"
 OUT        = "index.html"
 CITIES     = ["Тула", "Коломна", "Ступино", "Калуга"]
 
-LOGO_URL = "logo.png"   # Укажите путь к логотипу (например "logo.png")
+LOGO_URL = ""   # Укажите путь к логотипу (например "logo.png")
 RUBRIC_PHRASE = "А вы знали?"
 
 def fetch_videos():
@@ -55,13 +55,23 @@ def best_thumb(imgs):
 
 def process(raw):
     out = []
+    now = datetime.now()
+    current_year = now.year
+    current_month = now.month
     for v in raw:
         raw_title = v.get("title", "")
         rubric = "aznali" if RUBRIC_PHRASE.lower() in raw_title.lower() else ""
         city = extract_city(raw_title) if not rubric else ""
         title = clean_title(raw_title)
         dur   = v.get("duration", 0)
-        year  = datetime.fromtimestamp(v.get("date", 0)).year
+        # Дата видео в секундах
+        ts = v.get("date", 0)
+        dt = datetime.fromtimestamp(ts) if ts else None
+        year = dt.year if dt else 0
+        # Новинка: видео текущего месяца и года
+        is_new = False
+        if dt and dt.year == current_year and dt.month == current_month:
+            is_new = True
         views = v.get("views", v.get("local_views", 0))
         out.append({
             "id":    v["id"],
@@ -73,7 +83,7 @@ def process(raw):
             "dur":   f"{dur//60}:{dur%60:02d}",
             "player": v.get("player","").replace("&amp;","&"),
             "thumb": best_thumb(v.get("image",[])),
-            "isNew": year >= 2026,
+            "isNew": is_new,
             "isFeat": views >= 800,
         })
     return out
@@ -336,8 +346,9 @@ document.getElementById("mb").addEventListener("click",e=>{if(e.target===e.curre
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
 
 function buildHero(){
-  const pool=FILMS.filter(f=>f.isFeat&&f.views>=800&&f.thumb&&f.thumb.includes("userapi"));
-  const f=pool[Math.floor(Math.random()*pool.length)]||FILMS[0];
+  // Пул новинок с качественными обложками
+  const pool = FILMS.filter(f => f.isNew && f.thumb && f.thumb.includes("userapi"));
+  const f = pool.length ? pool[Math.floor(Math.random() * pool.length)] : FILMS[0];
   if(!f)return;
   let rubricClass = "";
   if(f.rubric === "aznali") rubricClass = "aznali";
@@ -461,7 +472,6 @@ def build_html(films_js, total, updated_at):
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
         '<title>ДВИЖ КИНО</title>\n'
-        # Иконки и мета-теги для браузера и мобильных устройств
         '<link rel="icon" type="image/x-icon" href="/favicon.ico">\n'
         '<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">\n'
         '<link rel="apple-touch-icon" href="/apple-touch-icon.png">\n'
