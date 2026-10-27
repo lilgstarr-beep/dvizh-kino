@@ -1,6 +1,6 @@
 """
 ДВИЖ КИНО — автосборка сайта
-Новинки определяются по текущему месяцу (год+месяц), баннер показывает случайную новинку.
+Добавлены города Озёры и Кашира.
 """
 import os, re, requests
 from datetime import datetime
@@ -9,9 +9,9 @@ VK_TOKEN   = os.environ.get("VK_TOKEN", "")
 GROUP_ID   = 24961777
 VK_VER     = "5.131"
 OUT        = "index.html"
-CITIES     = ["Тула", "Коломна", "Ступино", "Калуга"]
+CITIES     = ["Тула", "Коломна", "Ступино", "Калуга", "Озёры", "Кашира"]
 
-LOGO_URL = "logo.png"   # Укажите путь к логотипу (например "logo.png")
+LOGO_URL = ""   # Укажите путь к логотипу (например "logo.png")
 RUBRIC_PHRASE = "А вы знали?"
 
 def fetch_videos():
@@ -33,25 +33,31 @@ def fetch_videos():
     return videos
 
 def extract_city(t):
-    m = re.search(r"\((Тула|Коломна|Ступино|Калуга)\)", t)
-    return m.group(1) if m else ""
+    m = re.search(r"\((Тула|Коломна|Ступино|Калуга|Озёры|Озеры|Кашира)\)", t)
+    if not m:
+        return ""
+    city = m.group(1)
+    if city == "Озеры":
+        city = "Озёры"
+    return city
 
 def clean_title(t):
     t = re.sub(r"^Киножурнал\b.{0,15}?(ДВИЖ|Движ).{0,4}?\s*[-\u2014]\s*", "", t, flags=re.I)
     t = re.sub(r"^Движ\s*[-\u2014]\s*", "", t, flags=re.I)
     for c in CITIES:
         t = re.sub(r"\s*\(" + c + r"\)\s*$", "", t)
+    # На случай "Озеры" без ё в конце названия
+    t = re.sub(r"\s*\(Озеры\)\s*$", "", t)
     if "Новости Коломны от 28 мая" in t:
         t = "Новости: съёмки нового сезона"
     return t.strip()
 
 def best_thumb(imgs):
-    vk = [i for i in imgs if "userapi.com" in i.get("url","")]
-    pool = sorted(vk or imgs, key=lambda x: x.get("width", 0))
-    for i in pool:
-        if i.get("width", 0) >= 800:
-            return i["url"]
-    return pool[-1]["url"] if pool else ""
+    """Возвращает URL изображения с максимальной шириной."""
+    if not imgs:
+        return ""
+    best = max(imgs, key=lambda x: x.get("width", 0))
+    return best["url"]
 
 def process(raw):
     out = []
@@ -64,11 +70,9 @@ def process(raw):
         city = extract_city(raw_title) if not rubric else ""
         title = clean_title(raw_title)
         dur   = v.get("duration", 0)
-        # Дата видео в секундах
         ts = v.get("date", 0)
         dt = datetime.fromtimestamp(ts) if ts else None
         year = dt.year if dt else 0
-        # Новинка: видео текущего месяца и года
         is_new = False
         if dt and dt.year == current_year and dt.month == current_month:
             is_new = True
@@ -119,6 +123,7 @@ CSS = """
 :root{--bg:#0c0c10;--sf:#14141a;--sf2:#1e1e26;--bd:rgba(255,255,255,.07);
   --red:#e84545;--text:#f2f0ed;--dim:#8e8c88;--muted:#3e3c3a;
   --tula:#f0873c;--kolomna:#3da8e0;--stupino:#44c97a;--kaluga:#a67ee8;
+  --ozery:#4ecdc4;--kashira:#e86a92;
   --aznali:#e8b35e;
   --cw:280px;--ch:158px;--gap:12px;--r:8px}
 *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
@@ -142,7 +147,9 @@ nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom
 .live::before{content:'';width:6px;height:6px;background:var(--red);border-radius:50%;animation:pulse 2s ease infinite}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
 .cpill{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:20px}
-.cpill.tula{background:rgba(240,135,60,.12);color:var(--tula)}.cpill.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.cpill.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.cpill.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}.cpill.aznali{background:rgba(232,179,94,.15);color:var(--aznali)}
+.cpill.tula{background:rgba(240,135,60,.12);color:var(--tula)}.cpill.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.cpill.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.cpill.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}
+.cpill.ozery{background:rgba(78,205,196,.12);color:var(--ozery)}.cpill.kashira{background:rgba(232,106,146,.12);color:var(--kashira)}
+.cpill.aznali{background:rgba(232,179,94,.15);color:var(--aznali)}
 .hero-title{font-family:Playfair Display,serif;font-size:clamp(30px,5vw,56px);font-weight:700;line-height:1.08;margin-bottom:14px}
 .hero-meta{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-bottom:28px}
 .hero-sep{width:3px;height:3px;background:var(--muted);border-radius:50%}
@@ -165,6 +172,8 @@ nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom
 .fb.kolomna.active{background:var(--kolomna);color:#0c0c10;border-color:var(--kolomna)}
 .fb.stupino.active{background:var(--stupino);color:#0c0c10;border-color:var(--stupino)}
 .fb.kaluga.active{background:var(--kaluga);color:#0c0c10;border-color:var(--kaluga)}
+.fb.ozery.active{background:var(--ozery);color:#0c0c10;border-color:var(--ozery)}
+.fb.kashira.active{background:var(--kashira);color:#0c0c10;border-color:var(--kashira)}
 .sections{padding:28px 0 80px}
 .sec{margin-bottom:36px}
 .sh{padding:0 40px;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
@@ -173,7 +182,8 @@ nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom
 .cs{margin-bottom:36px}
 .ch{padding:0 40px;display:flex;align-items:center;gap:12px;margin-bottom:14px}
 .cn{font-size:17px;font-weight:700;letter-spacing:-.01em}
-.cn.tula{color:var(--tula)}.cn.kolomna{color:var(--kolomna)}.cn.stupino{color:var(--stupino)}.cn.kaluga{color:var(--kaluga)}.cn.aznali{color:var(--aznali)}
+.cn.tula{color:var(--tula)}.cn.kolomna{color:var(--kolomna)}.cn.stupino{color:var(--stupino)}.cn.kaluga{color:var(--kaluga)}
+.cn.ozery{color:var(--ozery)}.cn.kashira{color:var(--kashira)}.cn.aznali{color:var(--aznali)}
 .cr{flex:1;height:1px;background:var(--bd)}
 .cb{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--sf2);padding:3px 8px;border-radius:10px}
 .row{display:flex;gap:var(--gap);overflow-x:auto;padding:4px 40px 12px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}
@@ -194,7 +204,9 @@ nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom
 .tl{font-size:13px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:5px;letter-spacing:-.01em}
 .cf{display:flex;align-items:center;gap:6px}
 .cc{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px}
-.cc.tula{background:rgba(240,135,60,.12);color:var(--tula)}.cc.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.cc.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.cc.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}.cc.aznali{background:rgba(232,179,94,.15);color:var(--aznali)}.cc.x{background:rgba(255,255,255,.05);color:var(--muted)}
+.cc.tula{background:rgba(240,135,60,.12);color:var(--tula)}.cc.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.cc.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.cc.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}
+.cc.ozery{background:rgba(78,205,196,.12);color:var(--ozery)}.cc.kashira{background:rgba(232,106,146,.12);color:var(--kashira)}
+.cc.aznali{background:rgba(232,179,94,.15);color:var(--aznali)}.cc.x{background:rgba(255,255,255,.05);color:var(--muted)}
 .cv{font-size:11px;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cw),1fr));gap:18px var(--gap);padding:0 40px}
 .grid .card{flex:none;width:100%}
@@ -211,7 +223,9 @@ nav.solid{background:rgba(12,12,16,.96);backdrop-filter:blur(20px);border-bottom
 .mt{font-size:18px;font-weight:700;margin-bottom:8px;letter-spacing:-.01em}
 .mm{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .mp{font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px}
-.mp.tula{background:rgba(240,135,60,.12);color:var(--tula)}.mp.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.mp.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.mp.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}.mp.aznali{background:rgba(232,179,94,.15);color:var(--aznali)}
+.mp.tula{background:rgba(240,135,60,.12);color:var(--tula)}.mp.kolomna{background:rgba(61,168,224,.12);color:var(--kolomna)}.mp.stupino{background:rgba(68,201,122,.12);color:var(--stupino)}.mp.kaluga{background:rgba(166,126,232,.12);color:var(--kaluga)}
+.mp.ozery{background:rgba(78,205,196,.12);color:var(--ozery)}.mp.kashira{background:rgba(232,106,146,.12);color:var(--kashira)}
+.mp.aznali{background:rgba(232,179,94,.15);color:var(--aznali)}
 .minfo{font-size:12px;color:var(--muted)}
 .mvk{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.07);border:1px solid var(--bd);color:var(--dim);text-decoration:none;font-size:12px;font-weight:600;padding:9px 16px;border-radius:6px;white-space:nowrap;flex-shrink:0;transition:all .18s}
 .mvk:hover{background:rgba(255,255,255,.12);color:var(--text)}
@@ -244,13 +258,15 @@ footer{border-top:1px solid var(--bd);padding:24px 40px;display:flex;align-items
 """
 
 JS = r"""
-const CITIES=["Тула","Коломна","Ступино","Калуга"];
-const CC={"Тула":"tula","Коломна":"kolomna","Ступино":"stupino","Калуга":"kaluga","aznali":"aznali"};
+const CITIES=["Тула","Коломна","Ступино","Калуга","Озёры","Кашира"];
+const CC={"Тула":"tula","Коломна":"kolomna","Ступино":"stupino","Калуга":"kaluga","Озёры":"ozery","Кашира":"kashira","aznali":"aznali"};
 const GR={
   "Тула":"linear-gradient(135deg,#2a1005,#5c3010)",
   "Коломна":"linear-gradient(135deg,#05101e,#0e2840)",
   "Ступино":"linear-gradient(135deg,#05130a,#0a2e16)",
   "Калуга":"linear-gradient(135deg,#10051e,#261048)",
+  "Озёры":"linear-gradient(135deg,#051e1c,#0e3a36)",
+  "Кашира":"linear-gradient(135deg,#1e0510,#3a0e20)",
   "aznali":"linear-gradient(135deg,#402d12,#6e4f1e)",
   "":"linear-gradient(135deg,#111118,#1a1a22)"
 };
@@ -346,7 +362,6 @@ document.getElementById("mb").addEventListener("click",e=>{if(e.target===e.curre
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
 
 function buildHero(){
-  // Пул новинок с качественными обложками
   const pool = FILMS.filter(f => f.isNew && f.thumb && f.thumb.includes("userapi"));
   const f = pool.length ? pool[Math.floor(Math.random() * pool.length)] : FILMS[0];
   if(!f)return;
@@ -520,6 +535,8 @@ def build_html(films_js, total, updated_at):
         '  <button class="fb kolomna" data-city="Коломна">Коломна</button>\n'
         '  <button class="fb stupino" data-city="Ступино">Ступино</button>\n'
         '  <button class="fb kaluga" data-city="Калуга">Калуга</button>\n'
+        '  <button class="fb ozery" data-city="Озёры">Озёры</button>\n'
+        '  <button class="fb kashira" data-city="Кашира">Кашира</button>\n'
         '</div>\n'
         '<div class="sections" id="sections"></div>\n'
         '<div class="mb" id="mb">\n'
